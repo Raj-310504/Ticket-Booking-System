@@ -5,6 +5,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.FutureOrPresent;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -30,6 +31,12 @@ public class CreateBookingRequest {
     @NotNull(message = "Fare per passenger is required")
     @DecimalMin(value = "0.0", inclusive = false, message = "Fare per passenger must be greater than zero")
     private BigDecimal farePerPassenger;
+
+    @Pattern(
+            regexp = "^[A-Za-z]+\\d+$",
+            message = "Preferred coach must be in format like D3"
+    )
+    private String preferredCoach;
 
     @NotEmpty(message = "At least one passenger is required")
     @Valid

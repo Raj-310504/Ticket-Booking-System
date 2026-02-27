@@ -1,7 +1,9 @@
 package com.example.TicketBooking.repository;
 
 import com.example.TicketBooking.entity.TrainSchedule;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -10,6 +12,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 public interface TrainScheduleRepository extends JpaRepository<TrainSchedule, Long> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT ts FROM TrainSchedule ts WHERE ts.id = :scheduleId")
+    java.util.Optional<TrainSchedule> findByIdForUpdate(@Param("scheduleId") Long scheduleId);
 
     @Query(value = """
     SELECT ts.*

@@ -8,11 +8,13 @@ import com.example.TicketBooking.dto.CreateBookingRequest;
 import com.example.TicketBooking.dto.CreateBookingResponse;
 import com.example.TicketBooking.entity.Booking;
 import com.example.TicketBooking.entity.Passenger;
+import com.example.TicketBooking.entity.Seat;
 import com.example.TicketBooking.entity.TrainSchedule;
 import com.example.TicketBooking.entity.User;
 import com.example.TicketBooking.enums.BookingStatus;
+import com.example.TicketBooking.enums.SeatStatus;
 import com.example.TicketBooking.repository.BookingRepository;
-import com.example.TicketBooking.repository.PassengerRepository;
+import com.example.TicketBooking.repository.SeatRepository;
 import com.example.TicketBooking.repository.TrainScheduleRepository;
 import com.example.TicketBooking.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,10 +24,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.NoSuchElementException;
-import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -38,14 +39,14 @@ public class BookingService {
     @Autowired
     private TrainScheduleRepository trainScheduleRepository;
     @Autowired
-    private PassengerRepository passengerRepository;
+    private SeatRepository seatRepository;
 
     @Transactional
     public CreateBookingResponse createBooking(String userEmail, CreateBookingRequest request) {
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new SecurityException("Authenticated user not found"));
 
-        TrainSchedule schedule = trainScheduleRepository.findById(request.getTrainScheduleId())
+        TrainSchedule schedule = trainScheduleRepository.findByIdForUpdate(request.getTrainScheduleId())
                 .orElseThrow(() -> new NoSuchElementException("Train schedule not found"));
 
         LocalDate departureDate = schedule.getDepartureDateTime().toLocalDate();
@@ -58,6 +59,15 @@ public class BookingService {
             throw new IllegalStateException("Not enough seats available");
         }
 
+        List<Seat> allocatedSeats = allocateSeats(schedule.getId(), requestedSeats, request.getPreferredCoach());
+        if (allocatedSeats.size() < requestedSeats) {
+            throw new IllegalStateException("Unable to allocate requested number of seats");
+        }
+        for (Seat seat : allocatedSeats) {
+            seat.setStatus(SeatStatus.BOOKED);
+        }
+        seatRepository.saveAll(allocatedSeats);
+
         Booking booking = new Booking();
         booking.setUser(user);
         booking.setTrainSchedule(schedule);
@@ -67,16 +77,17 @@ public class BookingService {
         booking.setPnrNumber(generateUniquePnr());
         booking.setTotalAmount(request.getFarePerPassenger().multiply(BigDecimal.valueOf(requestedSeats)));
 
-        List<String> assignedSeats = allocateSeats(schedule.getId(), schedule.getTrain().getTotalSeats(), requestedSeats);
         List<Passenger> passengers = new ArrayList<>();
         for (int i = 0; i < request.getPassengers().size(); i++) {
             CreateBookingPassengerRequest passengerRequest = request.getPassengers().get(i);
+            Seat seat = allocatedSeats.get(i);
 
             Passenger passenger = new Passenger();
             passenger.setName(passengerRequest.getName());
             passenger.setAge(passengerRequest.getAge());
             passenger.setGender(passengerRequest.getGender());
-            passenger.setSeatNumber(assignedSeats.get(i));
+            passenger.setSeat(seat);
+            passenger.setSeatNumber(formatSeatLabel(seat));
             passenger.setBooking(booking);
             passengers.add(passenger);
         }
@@ -115,18 +126,24 @@ public class BookingService {
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new SecurityException("Authenticated user not found"));
 
-        Booking booking = bookingRepository.findByIdAndUserId(bookingId, user.getId())
+        Booking booking = bookingRepository.findByIdAndUserIdForUpdate(bookingId, user.getId())
                 .orElseThrow(() -> new NoSuchElementException("Booking not found"));
 
         if (booking.getStatus() == BookingStatus.CANCELLED) {
             throw new IllegalStateException("Booking is already cancelled");
         }
 
-        int releasedSeats = booking.getPassengers().size();
-        booking.setStatus(BookingStatus.CANCELLED);
+        TrainSchedule schedule = trainScheduleRepository.findByIdForUpdate(booking.getTrainSchedule().getId())
+                .orElseThrow(() -> new NoSuchElementException("Train schedule not found"));
 
-        TrainSchedule schedule = booking.getTrainSchedule();
-        schedule.setAvailableSeats(schedule.getAvailableSeats() + releasedSeats);
+        List<Seat> seatsToRelease = seatRepository.findBookedSeatsByBookingIdForUpdate(bookingId, BookingStatus.BOOKED);
+        for (Seat seat : seatsToRelease) {
+            seat.setStatus(SeatStatus.AVAILABLE);
+        }
+        seatRepository.saveAll(seatsToRelease);
+
+        booking.setStatus(BookingStatus.CANCELLED);
+        schedule.setAvailableSeats(schedule.getAvailableSeats() + seatsToRelease.size());
 
         Booking updated = bookingRepository.save(booking);
         trainScheduleRepository.save(schedule);
@@ -136,7 +153,7 @@ public class BookingService {
                 updated.getId(),
                 updated.getPnrNumber(),
                 updated.getStatus(),
-                releasedSeats,
+                seatsToRelease.size(),
                 schedule.getAvailableSeats()
         );
     }
@@ -164,28 +181,50 @@ public class BookingService {
                         passenger.getName(),
                         passenger.getAge(),
                         passenger.getGender(),
-                        passenger.getSeatNumber()
+                        passenger.getSeat() != null ? formatSeatLabel(passenger.getSeat()) : passenger.getSeatNumber()
                 ))
                 .toList();
     }
 
-    private List<String> allocateSeats(Long scheduleId, int totalSeats, int requestedSeats) {
-        List<String> alreadyTakenSeats = passengerRepository.findSeatNumbersByScheduleIdAndBookingStatus(scheduleId, BookingStatus.BOOKED);
-        Set<String> taken = new HashSet<>(alreadyTakenSeats);
-        List<String> assigned = new ArrayList<>();
+    private List<Seat> allocateSeats(Long scheduleId, int requestedSeats, String preferredCoach) {
+        String normalizedCoach = preferredCoach == null ? null : preferredCoach.trim().toUpperCase(Locale.ROOT);
+        List<Seat> allocated = new ArrayList<>(requestedSeats);
 
-        for (int i = 1; i <= totalSeats && assigned.size() < requestedSeats; i++) {
-            String seat = "S" + i;
-            if (!taken.contains(seat)) {
-                assigned.add(seat);
+        if (normalizedCoach != null && !normalizedCoach.isBlank()) {
+            allocated.addAll(seatRepository.findAvailableSeatsByScheduleAndCoachForUpdate(
+                    scheduleId,
+                    SeatStatus.AVAILABLE.name(),
+                    normalizedCoach,
+                    requestedSeats
+            ));
+        }
+
+        int remaining = requestedSeats - allocated.size();
+        if (remaining > 0) {
+            List<Seat> fallbackSeats;
+            if (allocated.isEmpty()) {
+                fallbackSeats = seatRepository.findAvailableSeatsByScheduleForUpdate(
+                        scheduleId,
+                        SeatStatus.AVAILABLE.name(),
+                        remaining
+                );
+            } else {
+                List<Long> allocatedSeatIds = allocated.stream().map(Seat::getId).toList();
+                fallbackSeats = seatRepository.findAvailableSeatsByScheduleExcludingIdsForUpdate(
+                        scheduleId,
+                        SeatStatus.AVAILABLE.name(),
+                        allocatedSeatIds,
+                        remaining
+                );
             }
+            allocated.addAll(fallbackSeats);
         }
 
-        if (assigned.size() < requestedSeats) {
-            throw new IllegalStateException("Unable to allocate seats");
-        }
+        return allocated;
+    }
 
-        return assigned;
+    private String formatSeatLabel(Seat seat) {
+        return seat.getCoachNumber() + "-" + seat.getSeatNumber();
     }
 
     private String generateUniquePnr() {
