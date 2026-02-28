@@ -14,6 +14,7 @@ import com.example.TicketBooking.entity.User;
 import com.example.TicketBooking.enums.BookingStatus;
 import com.example.TicketBooking.enums.SeatStatus;
 import com.example.TicketBooking.repository.BookingRepository;
+import com.example.TicketBooking.repository.PassengerRepository;
 import com.example.TicketBooking.repository.SeatRepository;
 import com.example.TicketBooking.repository.TrainScheduleRepository;
 import com.example.TicketBooking.repository.UserRepository;
@@ -40,6 +41,8 @@ public class BookingService {
     private TrainScheduleRepository trainScheduleRepository;
     @Autowired
     private SeatRepository seatRepository;
+    @Autowired
+    private PassengerRepository passengerRepository;
 
     @Transactional
     public CreateBookingResponse createBooking(String userEmail, CreateBookingRequest request) {
@@ -49,24 +52,23 @@ public class BookingService {
         TrainSchedule schedule = trainScheduleRepository.findByIdForUpdate(request.getTrainScheduleId())
                 .orElseThrow(() -> new NoSuchElementException("Train schedule not found"));
 
+        // journey date validation
         LocalDate departureDate = schedule.getDepartureDateTime().toLocalDate();
         if (!request.getJourneyDate().equals(departureDate)) {
             throw new IllegalArgumentException("Journey date must match schedule departure date");
         }
 
         int requestedSeats = request.getPassengers().size();
-        if (schedule.getAvailableSeats() < requestedSeats) {
-            throw new IllegalStateException("Not enough seats available");
-        }
 
         List<Seat> allocatedSeats = allocateSeats(schedule.getId(), requestedSeats, request.getPreferredCoach());
-        if (allocatedSeats.size() < requestedSeats) {
-            throw new IllegalStateException("Unable to allocate requested number of seats");
-        }
+        int confirmedSeatsCount = allocatedSeats.size();
+
         for (Seat seat : allocatedSeats) {
             seat.setStatus(SeatStatus.BOOKED);
         }
-        seatRepository.saveAll(allocatedSeats);
+        if (!allocatedSeats.isEmpty()) {
+            seatRepository.saveAll(allocatedSeats);
+        }
 
         Booking booking = new Booking();
         booking.setUser(user);
@@ -78,23 +80,35 @@ public class BookingService {
         booking.setTotalAmount(request.getFarePerPassenger().multiply(BigDecimal.valueOf(requestedSeats)));
 
         List<Passenger> passengers = new ArrayList<>();
+        // RAC logic
+        long existingRacCount = passengerRepository.countRacPassengersByScheduleAndBookingStatus(schedule.getId(), BookingStatus.BOOKED);
+        int racSequence = (int) existingRacCount;
+
+        // Passenger Creation Loop
         for (int i = 0; i < request.getPassengers().size(); i++) {
             CreateBookingPassengerRequest passengerRequest = request.getPassengers().get(i);
-            Seat seat = allocatedSeats.get(i);
 
             Passenger passenger = new Passenger();
             passenger.setName(passengerRequest.getName());
             passenger.setAge(passengerRequest.getAge());
             passenger.setGender(passengerRequest.getGender());
-            passenger.setSeat(seat);
-            passenger.setSeatNumber(formatSeatLabel(seat));
+            if (i < confirmedSeatsCount) {
+                Seat seat = allocatedSeats.get(i);
+                passenger.setSeat(seat);
+                passenger.setSeatNumber(formatSeatLabel(seat));
+            } else {
+                racSequence++;
+                passenger.setSeat(null);
+                passenger.setSeatNumber("RAC-" + racSequence);
+            }
             passenger.setBooking(booking);
             passengers.add(passenger);
         }
         booking.setPassengers(passengers);
 
-        schedule.setAvailableSeats(schedule.getAvailableSeats() - requestedSeats);
+        schedule.setAvailableSeats(Math.max(0, schedule.getAvailableSeats() - confirmedSeatsCount));
 
+        // save booking & schedule
         Booking saved = bookingRepository.save(booking);
         trainScheduleRepository.save(schedule);
 
@@ -136,14 +150,46 @@ public class BookingService {
         TrainSchedule schedule = trainScheduleRepository.findByIdForUpdate(booking.getTrainSchedule().getId())
                 .orElseThrow(() -> new NoSuchElementException("Train schedule not found"));
 
+        // Release Seats
         List<Seat> seatsToRelease = seatRepository.findBookedSeatsByBookingIdForUpdate(bookingId, BookingStatus.BOOKED);
         for (Seat seat : seatsToRelease) {
             seat.setStatus(SeatStatus.AVAILABLE);
         }
-        seatRepository.saveAll(seatsToRelease);
+        if (!seatsToRelease.isEmpty()) {
+            seatRepository.saveAll(seatsToRelease);
+        }
 
+        // RAC Promotion logic
+        List<Seat> seatsForPromotion = seatRepository.findAvailableSeatsByScheduleForUpdate(
+                schedule.getId(),
+                SeatStatus.AVAILABLE.name(),
+                seatsToRelease.size()
+        );
+        // find RAC passengers
+        List<Passenger> racPassengersToPromote = passengerRepository.findRacPassengersForUpdate(
+                schedule.getId(),
+                BookingStatus.BOOKED.name(),
+                seatsForPromotion.size()
+        );
+
+        // RAC -> Confirmed
+        int promotedCount = Math.min(seatsForPromotion.size(), racPassengersToPromote.size());
+        for (int i = 0; i < promotedCount; i++) {
+            Seat availableSeat = seatsForPromotion.get(i);
+            Passenger racPassenger = racPassengersToPromote.get(i);
+            availableSeat.setStatus(SeatStatus.BOOKED);
+            racPassenger.setSeat(availableSeat);
+            racPassenger.setSeatNumber(formatSeatLabel(availableSeat));
+        }
+        if (promotedCount > 0) {
+            seatRepository.saveAll(seatsForPromotion.subList(0, promotedCount));
+            passengerRepository.saveAll(racPassengersToPromote.subList(0, promotedCount));
+        }
+
+        // update booking status
         booking.setStatus(BookingStatus.CANCELLED);
-        schedule.setAvailableSeats(schedule.getAvailableSeats() + seatsToRelease.size());
+        // update available seats count
+        schedule.setAvailableSeats(schedule.getAvailableSeats() + seatsToRelease.size() - promotedCount);
 
         Booking updated = bookingRepository.save(booking);
         trainScheduleRepository.save(schedule);
