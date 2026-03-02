@@ -1,15 +1,17 @@
 package com.example.TicketBooking.repository;
 
 import com.example.TicketBooking.entity.TrainSchedule;
+import com.example.TicketBooking.enums.ScheduleStatus;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.List;
 
 public interface TrainScheduleRepository extends JpaRepository<TrainSchedule, Long> {
 
@@ -27,11 +29,34 @@ public interface TrainScheduleRepository extends JpaRepository<TrainSchedule, Lo
     AND ds.id = :destinationStationId
     AND ts.departure_date_time BETWEEN :startOfDay AND :endOfDay
     ORDER BY ts.departure_date_time
-    """, nativeQuery = true)
-    List<TrainSchedule> searchSchedules(
+    """,
+            countQuery = """
+    SELECT count(*)
+    FROM train_schedule ts
+    JOIN train t ON ts.train_id = t.id
+    JOIN station ss ON t.source_station_id = ss.id
+    JOIN station ds ON t.destination_station_id = ds.id
+    WHERE ss.id = :sourceStationId
+    AND ds.id = :destinationStationId
+    AND ts.departure_date_time BETWEEN :startOfDay AND :endOfDay
+    """,
+            nativeQuery = true)
+    Page<TrainSchedule> searchSchedules(
             Long sourceStationId,
             Long destinationStationId,
             LocalDateTime startOfDay,
-            LocalDateTime endOfDay
+            LocalDateTime endOfDay,
+            Pageable pageable
     );
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE TrainSchedule ts
+            SET ts.status = :completedStatus
+            WHERE ts.departureDateTime < :now
+            AND (ts.status IS NULL OR ts.status = :activeStatus)
+            """)
+    int markPastSchedulesAsCompleted(@Param("now") LocalDateTime now,
+                                     @Param("activeStatus") ScheduleStatus activeStatus,
+                                     @Param("completedStatus") ScheduleStatus completedStatus);
 }

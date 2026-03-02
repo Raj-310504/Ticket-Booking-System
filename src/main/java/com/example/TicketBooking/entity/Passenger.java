@@ -4,6 +4,8 @@ import com.example.TicketBooking.enums.Gender;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
 import lombok.*;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
 @Entity
 @Getter
@@ -31,9 +33,11 @@ public class Passenger {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "seat_id")
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private Seat seat;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "booking_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private Booking booking;
 }

@@ -2,12 +2,14 @@ package com.example.TicketBooking.service;
 
 import com.example.TicketBooking.dto.CreateTrainRequest;
 import com.example.TicketBooking.dto.CreateTrainResponse;
+import com.example.TicketBooking.dto.TrainResponse;
 import com.example.TicketBooking.entity.Station;
 import com.example.TicketBooking.entity.Train;
 import com.example.TicketBooking.repository.StationRepository;
 import com.example.TicketBooking.repository.TrainRepository;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -58,5 +60,20 @@ public class TrainService {
                 savedTrain.getSourceStation().getId(),
                 savedTrain.getDestinationStation().getId()
         );
+    }
+
+    public List<TrainResponse> getAllTrains() {
+        return trainRepository.findAll().stream()
+                .map(train -> new TrainResponse(
+                        train.getId(),
+                        train.getTrainNumber(),
+                        train.getTrainName(),
+                        train.getTotalSeats(),
+                        train.getSourceStation().getId(),
+                        train.getSourceStation().getStationName(),
+                        train.getDestinationStation().getId(),
+                        train.getDestinationStation().getStationName()
+                ))
+                .toList();
     }
 }

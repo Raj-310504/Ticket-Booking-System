@@ -5,6 +5,7 @@ import com.example.TicketBooking.dto.CreateTrainScheduleResponse;
 import com.example.TicketBooking.dto.TrainScheduleResponse;
 import com.example.TicketBooking.service.TrainScheduleService;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,7 +18,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/schedules")
@@ -35,15 +35,17 @@ public class TrainScheduleController {
     }
 
     @GetMapping("/search")
-    public ResponseEntity<List<TrainScheduleResponse>> searchSchedules(
+    public ResponseEntity<Page<TrainScheduleResponse>> searchSchedules(
             @RequestParam Long sourceStationId,
             @RequestParam Long destinationStationId,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate journeyDate
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate journeyDate,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "5") int size
     ) {
         LocalDateTime startOfDay = journeyDate.atStartOfDay();
         LocalDateTime endOfDay = journeyDate.atTime(23, 59, 59);
         return ResponseEntity.ok(
-                trainScheduleService.searchSchedules(sourceStationId, destinationStationId, startOfDay, endOfDay)
+                trainScheduleService.searchSchedules(sourceStationId, destinationStationId, startOfDay, endOfDay, page, size)
         );
     }
 }

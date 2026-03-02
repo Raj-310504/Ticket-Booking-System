@@ -3,6 +3,9 @@ package com.example.TicketBooking.entity;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
 import lombok.*;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
+
 import java.util.List;
 
 @Entity
@@ -28,10 +31,12 @@ public class Train {
 
     @ManyToOne
     @JoinColumn(name = "source_station_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private Station sourceStation;
 
     @ManyToOne
     @JoinColumn(name = "destination_station_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private Station destinationStation;
 
     @OneToMany(mappedBy = "train", cascade = CascadeType.ALL, orphanRemoval = true)

@@ -12,6 +12,7 @@ import com.example.TicketBooking.entity.Seat;
 import com.example.TicketBooking.entity.TrainSchedule;
 import com.example.TicketBooking.entity.User;
 import com.example.TicketBooking.enums.BookingStatus;
+import com.example.TicketBooking.enums.ScheduleStatus;
 import com.example.TicketBooking.enums.SeatStatus;
 import com.example.TicketBooking.repository.BookingRepository;
 import com.example.TicketBooking.repository.PassengerRepository;
@@ -19,11 +20,14 @@ import com.example.TicketBooking.repository.SeatRepository;
 import com.example.TicketBooking.repository.TrainScheduleRepository;
 import com.example.TicketBooking.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -51,6 +55,7 @@ public class BookingService {
 
         TrainSchedule schedule = trainScheduleRepository.findByIdForUpdate(request.getTrainScheduleId())
                 .orElseThrow(() -> new NoSuchElementException("Train schedule not found"));
+        validateScheduleForBooking(schedule);
 
         // journey date validation
         LocalDate departureDate = schedule.getDepartureDateTime().toLocalDate();
@@ -77,7 +82,10 @@ public class BookingService {
         booking.setJourneyDate(request.getJourneyDate());
         booking.setStatus(BookingStatus.BOOKED);
         booking.setPnrNumber(generateUniquePnr());
-        booking.setTotalAmount(request.getFarePerPassenger().multiply(BigDecimal.valueOf(requestedSeats)));
+        if (schedule.getFarePerPassenger() == null || schedule.getFarePerPassenger().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalStateException("Fare is not configured for this train schedule");
+        }
+        booking.setTotalAmount(schedule.getFarePerPassenger().multiply(BigDecimal.valueOf(requestedSeats)));
 
         List<Passenger> passengers = new ArrayList<>();
         // RAC logic
@@ -127,12 +135,26 @@ public class BookingService {
     }
 
     @Transactional(readOnly = true)
-    public List<BookingResponse> getMyBookings(String userEmail) {
+    public Page<BookingResponse> getMyBookings(String userEmail, int page, int size) {
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new SecurityException("Authenticated user not found"));
 
-        List<Booking> bookings = bookingRepository.findByUserIdOrderByCreatedAtDesc(user.getId());
-        return bookings.stream().map(this::mapBooking).toList();
+        Page<Booking> bookings = bookingRepository.findByUserIdOrderByCreatedAtDesc(
+                user.getId(),
+                PageRequest.of(page, size)
+        );
+        return bookings.map(this::mapBooking);
+    }
+
+    @Transactional(readOnly = true)
+    public BookingResponse getBookingByPnr(String userEmail, String pnr) {
+        User user = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new SecurityException("Authenticated user not found"));
+
+        Booking booking = bookingRepository.findByPnrNumberAndUserId(pnr, user.getId())
+                .orElseThrow(() -> new NoSuchElementException("Booking not found"));
+
+        return mapBooking(booking);
     }
 
     @Transactional
@@ -149,6 +171,7 @@ public class BookingService {
 
         TrainSchedule schedule = trainScheduleRepository.findByIdForUpdate(booking.getTrainSchedule().getId())
                 .orElseThrow(() -> new NoSuchElementException("Train schedule not found"));
+        validateScheduleForCancellation(schedule);
 
         // Release Seats
         List<Seat> seatsToRelease = seatRepository.findBookedSeatsByBookingIdForUpdate(bookingId, BookingStatus.BOOKED);
@@ -271,6 +294,26 @@ public class BookingService {
 
     private String formatSeatLabel(Seat seat) {
         return seat.getCoachNumber() + "-" + seat.getSeatNumber();
+    }
+
+    private void validateScheduleForBooking(TrainSchedule schedule) {
+        if (schedule.getDepartureDateTime().isBefore(LocalDateTime.now())) {
+            throw new IllegalStateException("Booking is closed. Train has already departed");
+        }
+
+        if (schedule.getStatus() == ScheduleStatus.CANCELLED || schedule.getStatus() == ScheduleStatus.COMPLETED) {
+            throw new IllegalStateException("Booking is not allowed for this train schedule");
+        }
+    }
+
+    private void validateScheduleForCancellation(TrainSchedule schedule) {
+        if (schedule.getDepartureDateTime().isBefore(LocalDateTime.now())) {
+            throw new IllegalStateException("Cancellation is not allowed after train departure");
+        }
+
+        if (schedule.getStatus() == ScheduleStatus.CANCELLED || schedule.getStatus() == ScheduleStatus.COMPLETED) {
+            throw new IllegalStateException("Cancellation is not allowed for this train schedule");
+        }
     }
 
     private String generateUniquePnr() {

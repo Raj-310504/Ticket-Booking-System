@@ -6,6 +6,8 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
 import java.util.List;
 
@@ -27,6 +29,7 @@ public class Coach {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "schedule_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private TrainSchedule trainSchedule;
 
     @OneToMany(mappedBy = "coach", cascade = CascadeType.ALL, orphanRemoval = true)

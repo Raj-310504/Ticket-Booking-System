@@ -3,8 +3,12 @@ package com.example.TicketBooking.service;
 import com.example.TicketBooking.dto.*;
 import com.example.TicketBooking.entity.*;
 import com.example.TicketBooking.enums.BerthType;
+import com.example.TicketBooking.enums.ScheduleStatus;
 import com.example.TicketBooking.enums.SeatStatus;
 import com.example.TicketBooking.repository.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -65,6 +69,8 @@ public class TrainScheduleService {
         schedule.setDepartureDateTime(request.getDepartureDateTime());
         schedule.setArrivalDateTime(request.getArrivalDateTime());
         schedule.setAvailableSeats(request.getAvailableSeats());
+        schedule.setFarePerPassenger(request.getFarePerPassenger());
+        schedule.setStatus(ScheduleStatus.ACTIVE);
 
         TrainSchedule saved = trainScheduleRepository.save(schedule);
         // Seats initialize
@@ -77,24 +83,30 @@ public class TrainScheduleService {
                 train.getTrainNumber(),
                 saved.getDepartureDateTime(),
                 saved.getArrivalDateTime(),
-                saved.getAvailableSeats()
+                saved.getAvailableSeats(),
+                saved.getFarePerPassenger()
         );
     }
 
-    public List<TrainScheduleResponse> searchSchedules(Long sourceStationId, Long destinationStationId, LocalDateTime startOfDay, LocalDateTime endOfDay) {
+    public Page<TrainScheduleResponse> searchSchedules(Long sourceStationId,
+                                                       Long destinationStationId,
+                                                       LocalDateTime startOfDay,
+                                                       LocalDateTime endOfDay,
+                                                       int page,
+                                                       int size) {
         if (sourceStationId.equals(destinationStationId)) {
             throw new IllegalArgumentException("Source and destination stations must be different");
         }
 
-        List<TrainSchedule> schedules = trainScheduleRepository.searchSchedules(
+        Page<TrainSchedule> schedules = trainScheduleRepository.searchSchedules(
                 sourceStationId,
                 destinationStationId,
                 startOfDay,
-                endOfDay
+                endOfDay,
+                PageRequest.of(page, size)
         );
 
-        return schedules.stream()
-                .map(schedule -> new TrainScheduleResponse(
+        return schedules.map(schedule -> new TrainScheduleResponse(
                         schedule.getId(),
                         schedule.getTrain().getId(),
                         schedule.getTrain().getTrainNumber(),
@@ -105,9 +117,19 @@ public class TrainScheduleService {
                         schedule.getTrain().getDestinationStation().getStationName(),
                         schedule.getDepartureDateTime(),
                         schedule.getArrivalDateTime(),
-                        schedule.getAvailableSeats()
-                ))
-                .toList();
+                        schedule.getAvailableSeats(),
+                        schedule.getFarePerPassenger()
+                ));
+    }
+
+    @Scheduled(cron = "0 0/30 * * * *")
+    @Transactional
+    public void markPastSchedulesAsCompleted() {
+        trainScheduleRepository.markPastSchedulesAsCompleted(
+                LocalDateTime.now(),
+                ScheduleStatus.ACTIVE,
+                ScheduleStatus.COMPLETED
+        );
     }
 
     // coach and seat auto generate

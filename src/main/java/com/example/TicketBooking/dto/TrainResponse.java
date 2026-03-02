@@ -5,24 +5,17 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class TrainScheduleResponse {
+public class TrainResponse {
     private Long id;
-    private Long trainId;
     private String trainNumber;
     private String trainName;
+    private int totalSeats;
     private Long sourceStationId;
     private String sourceStationName;
     private Long destinationStationId;
     private String destinationStationName;
-    private LocalDateTime departureDateTime;
-    private LocalDateTime arrivalDateTime;
-    private int availableSeats;
-    private BigDecimal farePerPassenger;
 }

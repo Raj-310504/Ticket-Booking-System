@@ -4,11 +4,15 @@ import com.example.TicketBooking.dto.LoginRequest;
 import com.example.TicketBooking.dto.LoginResponse;
 import com.example.TicketBooking.dto.RegisterRequest;
 import com.example.TicketBooking.dto.RegisterResponse;
+import com.example.TicketBooking.dto.ChangePasswordRequest;
+import com.example.TicketBooking.dto.ChangePasswordResponse;
 import com.example.TicketBooking.entity.User;
 import com.example.TicketBooking.enums.Role;
 import com.example.TicketBooking.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.util.NoSuchElementException;
 
 @Service
 public class UserService {
@@ -61,5 +65,23 @@ public class UserService {
                 user.getEmail(),
                 user.getRole()
         );
+    }
+
+    public ChangePasswordResponse changePassword(String userEmail, ChangePasswordRequest request) {
+        User user = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new NoSuchElementException("Authenticated user not found"));
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
+            throw new SecurityException("Current password is incorrect");
+        }
+
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
+            throw new IllegalArgumentException("New password must be different from current password");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+
+        return new ChangePasswordResponse("Password changed successfully");
     }
 }
