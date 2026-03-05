@@ -1,4 +1,8 @@
+<<<<<<< HEAD
   # Ticket Booking System
+=======
+# Ticket Booking System
+>>>>>>> 4e2cc3931e103e65ddcaebd09d69e26e18afbed8
 
 Spring Boot REST API for railway ticket booking with role-based access, schedule search, booking, cancellation, RAC handling, and admin dashboard.
 
