@@ -1,12 +1,9 @@
 package com.example.TicketBooking.repository;
 
 import com.example.TicketBooking.entity.TrainSchedule;
-import com.example.TicketBooking.enums.ScheduleStatus;
-import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -15,8 +12,12 @@ import java.time.LocalDateTime;
 
 public interface TrainScheduleRepository extends JpaRepository<TrainSchedule, Long> {
 
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT ts FROM TrainSchedule ts WHERE ts.id = :scheduleId")
+    @Query(value = """
+            SELECT *
+            FROM train_schedule ts
+            WHERE ts.id = :scheduleId
+            FOR UPDATE
+            """, nativeQuery = true)
     java.util.Optional<TrainSchedule> findByIdForUpdate(@Param("scheduleId") Long scheduleId);
 
     @Query(value = """
@@ -50,13 +51,13 @@ public interface TrainScheduleRepository extends JpaRepository<TrainSchedule, Lo
     );
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("""
-            UPDATE TrainSchedule ts
-            SET ts.status = :completedStatus
-            WHERE ts.departureDateTime < :now
-            AND (ts.status IS NULL OR ts.status = :activeStatus)
-            """)
+    @Query(value = """
+            UPDATE train_schedule ts
+            SET status = :completedStatus
+            WHERE ts.departure_date_time < :now
+              AND (ts.status IS NULL OR ts.status = :activeStatus)
+            """, nativeQuery = true)
     int markPastSchedulesAsCompleted(@Param("now") LocalDateTime now,
-                                     @Param("activeStatus") ScheduleStatus activeStatus,
-                                     @Param("completedStatus") ScheduleStatus completedStatus);
+                                     @Param("activeStatus") String activeStatus,
+                                     @Param("completedStatus") String completedStatus);
 }

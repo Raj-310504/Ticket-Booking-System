@@ -127,8 +127,8 @@ public class TrainScheduleService {
     public void markPastSchedulesAsCompleted() {
         trainScheduleRepository.markPastSchedulesAsCompleted(
                 LocalDateTime.now(),
-                ScheduleStatus.ACTIVE,
-                ScheduleStatus.COMPLETED
+                ScheduleStatus.ACTIVE.name(),
+                ScheduleStatus.COMPLETED.name()
         );
     }
 

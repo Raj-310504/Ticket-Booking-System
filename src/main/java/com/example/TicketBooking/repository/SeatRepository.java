@@ -1,10 +1,7 @@
 package com.example.TicketBooking.repository;
 
 import com.example.TicketBooking.entity.Seat;
-import com.example.TicketBooking.enums.SeatStatus;
-import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -61,16 +58,15 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
                                                                   @Param("excludedSeatIds") List<Long> excludedSeatIds,
                                                                   @Param("limitCount") int limitCount);
 
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("""
-            SELECT s
-            FROM Passenger p
-            JOIN p.seat s
-            WHERE p.booking.id = :bookingId
-            AND p.booking.status = :status
-            """)
+    @Query(value = """
+            SELECT s.*
+            FROM seat s
+            JOIN passenger p ON p.seat_id = s.id
+            JOIN bookings b ON b.id = p.booking_id
+            WHERE b.id = :bookingId
+              AND b.status = :status
+            FOR UPDATE
+            """, nativeQuery = true)
     List<Seat> findBookedSeatsByBookingIdForUpdate(@Param("bookingId") Long bookingId,
-                                                   @Param("status") com.example.TicketBooking.enums.BookingStatus status);
-
-    long countByTrainScheduleIdAndStatus(Long trainScheduleId, SeatStatus status);
+                                                    @Param("status") String status);
 }

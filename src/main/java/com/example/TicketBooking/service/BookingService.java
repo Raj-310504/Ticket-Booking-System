@@ -1,6 +1,5 @@
 package com.example.TicketBooking.service;
 
-import com.example.TicketBooking.dto.BookingPassengerResponse;
 import com.example.TicketBooking.dto.BookingResponse;
 import com.example.TicketBooking.dto.CancelBookingResponse;
 import com.example.TicketBooking.dto.CreateBookingPassengerRequest;
@@ -14,6 +13,7 @@ import com.example.TicketBooking.entity.User;
 import com.example.TicketBooking.enums.BookingStatus;
 import com.example.TicketBooking.enums.ScheduleStatus;
 import com.example.TicketBooking.enums.SeatStatus;
+import com.example.TicketBooking.mapper.BookingMapper;
 import com.example.TicketBooking.repository.BookingRepository;
 import com.example.TicketBooking.repository.PassengerRepository;
 import com.example.TicketBooking.repository.SeatRepository;
@@ -47,6 +47,8 @@ public class BookingService {
     private SeatRepository seatRepository;
     @Autowired
     private PassengerRepository passengerRepository;
+    @Autowired
+    private BookingMapper bookingMapper;
 
     @Transactional
     public CreateBookingResponse createBooking(String userEmail, CreateBookingRequest request) {
@@ -89,7 +91,10 @@ public class BookingService {
 
         List<Passenger> passengers = new ArrayList<>();
         // RAC logic
-        long existingRacCount = passengerRepository.countRacPassengersByScheduleAndBookingStatus(schedule.getId(), BookingStatus.BOOKED);
+        long existingRacCount = passengerRepository.countRacPassengersByScheduleAndBookingStatus(
+                schedule.getId(),
+                BookingStatus.BOOKED.name()
+        );
         int racSequence = (int) existingRacCount;
 
         // Passenger Creation Loop
@@ -130,7 +135,7 @@ public class BookingService {
                 saved.getTotalAmount(),
                 saved.getPassengers().size(),
                 saved.getTrainSchedule().getAvailableSeats(),
-                mapPassengers(saved.getPassengers())
+                bookingMapper.toPassengerResponses(saved.getPassengers())
         );
     }
 
@@ -143,7 +148,7 @@ public class BookingService {
                 user.getId(),
                 PageRequest.of(page, size)
         );
-        return bookings.map(this::mapBooking);
+        return bookings.map(bookingMapper::toBookingResponse);
     }
 
     @Transactional(readOnly = true)
@@ -154,7 +159,7 @@ public class BookingService {
         Booking booking = bookingRepository.findByPnrNumberAndUserId(pnr, user.getId())
                 .orElseThrow(() -> new NoSuchElementException("Booking not found"));
 
-        return mapBooking(booking);
+        return bookingMapper.toBookingResponse(booking);
     }
 
     @Transactional
@@ -174,7 +179,10 @@ public class BookingService {
         validateScheduleForCancellation(schedule);
 
         // Release Seats
-        List<Seat> seatsToRelease = seatRepository.findBookedSeatsByBookingIdForUpdate(bookingId, BookingStatus.BOOKED);
+        List<Seat> seatsToRelease = seatRepository.findBookedSeatsByBookingIdForUpdate(
+                bookingId,
+                BookingStatus.BOOKED.name()
+        );
         for (Seat seat : seatsToRelease) {
             seat.setStatus(SeatStatus.AVAILABLE);
         }
@@ -225,34 +233,6 @@ public class BookingService {
                 seatsToRelease.size(),
                 schedule.getAvailableSeats()
         );
-    }
-
-    private BookingResponse mapBooking(Booking booking) {
-        return new BookingResponse(
-                booking.getId(),
-                booking.getPnrNumber(),
-                booking.getTrainSchedule().getId(),
-                booking.getTrainSchedule().getTrain().getTrainNumber(),
-                booking.getTrainSchedule().getTrain().getTrainName(),
-                booking.getTrainSchedule().getDepartureDateTime(),
-                booking.getTrainSchedule().getArrivalDateTime(),
-                booking.getBookingDate(),
-                booking.getJourneyDate(),
-                booking.getStatus(),
-                booking.getTotalAmount(),
-                mapPassengers(booking.getPassengers())
-        );
-    }
-
-    private List<BookingPassengerResponse> mapPassengers(List<Passenger> passengers) {
-        return passengers.stream()
-                .map(passenger -> new BookingPassengerResponse(
-                        passenger.getName(),
-                        passenger.getAge(),
-                        passenger.getGender(),
-                        passenger.getSeat() != null ? formatSeatLabel(passenger.getSeat()) : passenger.getSeatNumber()
-                ))
-                .toList();
     }
 
     private List<Seat> allocateSeats(Long scheduleId, int requestedSeats, String preferredCoach) {

@@ -2,11 +2,9 @@ package com.example.TicketBooking.repository;
 
 import com.example.TicketBooking.entity.Booking;
 import com.example.TicketBooking.enums.BookingStatus;
-import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -18,22 +16,20 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 
     Page<Booking> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
-    @Query("""
-            SELECT b
-            FROM Booking b
-            WHERE lower(b.pnrNumber) = lower(:pnrNumber)
-            AND b.user.id = :userId
-            """)
+    @Query(value = """
+            SELECT *
+            FROM bookings b
+            WHERE lower(b.pnr_number) = lower(:pnrNumber)
+              AND b.user_id = :userId
+            """, nativeQuery = true)
     Optional<Booking> findByPnrNumberAndUserId(@Param("pnrNumber") String pnrNumber, @Param("userId") Long userId);
 
-    Optional<Booking> findByIdAndUserId(Long bookingId, Long userId);
-
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("""
-            SELECT b
-            FROM Booking b
+    @Query(value = """
+            SELECT *
+            FROM bookings b
             WHERE b.id = :bookingId
-            AND b.user.id = :userId
-            """)
+              AND b.user_id = :userId
+            FOR UPDATE
+            """, nativeQuery = true)
     Optional<Booking> findByIdAndUserIdForUpdate(@Param("bookingId") Long bookingId, @Param("userId") Long userId);
 }
